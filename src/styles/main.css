@@ -430,7 +430,7 @@ body {
 .mindmap-container {
   flex: 1;
   overflow: auto;
-  padding: 24px 60px 40px;
+  padding: 0 60px 40px;
   background: #F7F7F8;
   cursor: grab;
   position: relative;
@@ -456,6 +456,7 @@ body {
   gap: 36px;
   transform-origin: 0 0;
   will-change: transform;
+  padding: 40px 0;
 }
 
 .mindmap-canvas-inner.animate-pan {
@@ -718,6 +719,24 @@ body {
   padding: 4px 0;
   margin-top: 10px;
   border-radius: 4px;
+}
+
+/* Images in card content */
+.node-title img,
+.node-description img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 4px 0;
+  display: block;
+}
+
+/* Ensure pasted images are properly displayed */
+.node-title[contenteditable="true"] img,
+.node-description[contenteditable="true"] img {
+  max-width: 100%;
+  height: auto;
+  cursor: text;
 }
 
 .node-count {

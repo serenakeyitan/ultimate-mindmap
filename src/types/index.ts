@@ -15,6 +15,12 @@ export interface MindMapNode {
   /** Optional description/content */
   description?: string;
 
+  /** HTML content for title (preserves images, formatting) */
+  titleHtml?: string;
+
+  /** HTML content for description (preserves images, formatting) */
+  descriptionHtml?: string;
+
   /** Child nodes */
   children: MindMapNode[];
 

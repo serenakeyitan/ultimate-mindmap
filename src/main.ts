@@ -447,8 +447,19 @@ class UltimateMindMap {
 
       case 'edit':
         if (data && data.field) {
-          parser.updateNode(nodes, nodeId, { [data.field]: data.value });
+          const updates: any = { [data.field]: data.value };
+          // Preserve HTML content if it contains images or formatting
+          if (data.html && data.html.includes('<')) {
+            updates[`${data.field}Html`] = data.html;
+            // Debug: verify HTML is being saved
+            if (data.html.includes('<img')) {
+              console.log('[Main] Saving HTML with image for node:', nodeId, 'field:', data.field, 'html:', data.html.substring(0, 100));
+            }
+          }
+          parser.updateNode(nodes, nodeId, updates);
           this.updateMarkdown();
+          // Trigger layout reflow after content changes
+          this.renderer.requestLayoutCheck();
         }
         break;
 

@@ -30,6 +30,38 @@ export class MindMapRenderer {
     window.addEventListener('resize', () => {
       this.scheduleConnectionsRender();
     });
+
+    // Observe content changes in cards to trigger layout reflow
+    this.setupContentObserver();
+  }
+
+  private setupContentObserver() {
+    const observer = new MutationObserver((mutations) => {
+      // Check if any mutations affected card content
+      const hasContentChange = mutations.some((mutation) => {
+        const target = mutation.target as HTMLElement;
+        // Detect changes to contenteditable elements or card dimensions
+        return (
+          target.classList?.contains('node-title') ||
+          target.classList?.contains('node-description') ||
+          target.classList?.contains('mindmap-node')
+        );
+      });
+
+      if (hasContentChange) {
+        // Debounce layout recalculation
+        this.scheduleConnectionsRender();
+      }
+    });
+
+    // Observe the entire container for changes
+    observer.observe(this.container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['style'], // Watch for style changes that affect dimensions
+    });
   }
 
   /**
@@ -115,7 +147,16 @@ export class MindMapRenderer {
     // Title
     const title = document.createElement('div');
     title.className = 'node-title';
-    title.textContent = node.title;
+    // Use HTML content if available to preserve images/formatting
+    if (node.titleHtml) {
+      title.innerHTML = node.titleHtml;
+      // Debug: verify HTML is being rendered
+      if (node.titleHtml.includes('<img')) {
+        console.log('[Renderer] Rendering title with image for node:', node.id, node.titleHtml.substring(0, 100));
+      }
+    } else {
+      title.textContent = node.title;
+    }
     title.setAttribute('data-field', 'title');
     content.appendChild(title);
 
@@ -123,7 +164,16 @@ export class MindMapRenderer {
     if (node.description !== undefined) {
       const description = document.createElement('div');
       description.className = 'node-description';
-      description.textContent = node.description ?? '';
+      // Use HTML content if available to preserve images/formatting
+      if (node.descriptionHtml) {
+        description.innerHTML = node.descriptionHtml;
+        // Debug: verify HTML is being rendered
+        if (node.descriptionHtml.includes('<img')) {
+          console.log('[Renderer] Rendering description with image for node:', node.id, node.descriptionHtml.substring(0, 100));
+        }
+      } else {
+        description.textContent = node.description ?? '';
+      }
       description.setAttribute('data-field', 'description');
       content.appendChild(description);
     }
@@ -151,6 +201,10 @@ export class MindMapRenderer {
     // Double-click to edit
     title.addEventListener('dblclick', (e) => {
       e.stopPropagation();
+      // Save current HTML content before editing to preserve images
+      if (title.innerHTML && title.innerHTML.includes('<img')) {
+        (node as any)._preservedTitleHtml = title.innerHTML;
+      }
       this.enableEditing(title, node.id, 'title');
     });
 
@@ -165,6 +219,10 @@ export class MindMapRenderer {
     if (descEl) {
       descEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
+        // Save current HTML content before editing to preserve images
+        if ((descEl as HTMLElement).innerHTML && (descEl as HTMLElement).innerHTML.includes('<img')) {
+          (node as any)._preservedDescriptionHtml = (descEl as HTMLElement).innerHTML;
+        }
         this.enableEditing(descEl as HTMLElement, node.id, 'description');
       });
     }
@@ -417,6 +475,7 @@ export class MindMapRenderer {
    */
   private enableEditing(element: HTMLElement, nodeId: string, field: string, focus = true) {
     const originalText = element.textContent || '';
+    const originalHtml = element.innerHTML || '';
 
     element.contentEditable = 'true';
     if (focus) {
@@ -432,9 +491,43 @@ export class MindMapRenderer {
       selection?.addRange(range);
     }
 
+    // Save HTML content immediately on paste (to capture pasted images)
+    const handlePaste = () => {
+      // Use setTimeout to let the paste complete first
+      setTimeout(() => {
+        const newHtml = element.innerHTML || '';
+        const newText = element.textContent || '';
+        if (newHtml.includes('<img')) {
+          // Image was pasted - save immediately
+          console.log('[Renderer] Image pasted, auto-saving for node:', nodeId, 'field:', field);
+          const updates: any = { [field]: newText, [`${field}Html`]: newHtml };
+          this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
+        }
+      }, 0);
+    };
+
+    // Save HTML content on input if it contains images
+    const handleInput = () => {
+      const newHtml = element.innerHTML || '';
+      if (newHtml.includes('<img')) {
+        const newText = element.textContent || '';
+        // Auto-save if images are present
+        console.log('[Renderer] Image detected in input, auto-saving for node:', nodeId, 'field:', field);
+        const updates: any = { [field]: newText, [`${field}Html`]: newHtml };
+        this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
+      }
+    };
+
+    element.addEventListener('paste', handlePaste);
+    element.addEventListener('input', handleInput);
+
     const saveEdit = () => {
       element.contentEditable = 'false';
+      element.removeEventListener('paste', handlePaste);
+      element.removeEventListener('input', handleInput);
+
       const newText = element.textContent || '';
+      const newHtml = element.innerHTML || '';
 
       // Remove new-card class if user added content
       if (newText.trim()) {
@@ -443,14 +536,30 @@ export class MindMapRenderer {
         card?.classList.remove('new-card');
       }
 
-      if (newText !== originalText) {
-        this.onNodeAction?.('edit', nodeId, { field, value: newText });
+      if (newText !== originalText || newHtml.includes('<img')) {
+        // Save both text and HTML to preserve images and formatting
+        const updates: any = { [field]: newText };
+        // Save HTML if it contains tags (especially images)
+        if (newHtml.includes('<')) {
+          updates[`${field}Html`] = newHtml;
+        }
+        this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
+
+        // Trigger layout reflow after content change
+        this.scheduleConnectionsRender();
       }
     };
 
     const cancelEdit = () => {
       element.contentEditable = 'false';
-      element.textContent = originalText;
+      element.removeEventListener('paste', handlePaste);
+      element.removeEventListener('input', handleInput);
+      // Restore original HTML to preserve images
+      if (originalHtml.includes('<')) {
+        element.innerHTML = originalHtml;
+      } else {
+        element.textContent = originalText;
+      }
     };
 
     element.addEventListener(
@@ -513,14 +622,24 @@ export class MindMapRenderer {
     if (updates.title !== undefined) {
       const titleEl = card.querySelector('.node-title');
       if (titleEl) {
-        titleEl.textContent = updates.title;
+        // Use HTML if available to preserve images
+        if ((updates as any).titleHtml) {
+          (titleEl as HTMLElement).innerHTML = (updates as any).titleHtml;
+        } else {
+          titleEl.textContent = updates.title;
+        }
       }
     }
 
     if (updates.description !== undefined) {
       const descEl = card.querySelector('.node-description');
       if (descEl) {
-        descEl.textContent = updates.description;
+        // Use HTML if available to preserve images
+        if ((updates as any).descriptionHtml) {
+          (descEl as HTMLElement).innerHTML = (updates as any).descriptionHtml;
+        } else {
+          descEl.textContent = updates.description;
+        }
       }
     }
   }
@@ -1273,7 +1392,8 @@ export class MindMapRenderer {
 
       if (childRects.length === 0) return;
 
-      const desiredTrunkX = snap(parentRight + 32);
+      // Position trunk closer to parent to make horizontal connectors longer (3× previous length)
+      const desiredTrunkX = snap(parentRight + 10);
       const horizontalGap = 0;
       const minChildLeft = Math.min(...childRects.map((child) => child.left));
       const maxTrunkX = snap(minChildLeft - horizontalGap);
