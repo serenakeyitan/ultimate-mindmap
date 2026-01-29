@@ -30,38 +30,6 @@ export class MindMapRenderer {
     window.addEventListener('resize', () => {
       this.scheduleConnectionsRender();
     });
-
-    // Observe content changes in cards to trigger layout reflow
-    this.setupContentObserver();
-  }
-
-  private setupContentObserver() {
-    const observer = new MutationObserver((mutations) => {
-      // Check if any mutations affected card content
-      const hasContentChange = mutations.some((mutation) => {
-        const target = mutation.target as HTMLElement;
-        // Detect changes to contenteditable elements or card dimensions
-        return (
-          target.classList?.contains('node-title') ||
-          target.classList?.contains('node-description') ||
-          target.classList?.contains('mindmap-node')
-        );
-      });
-
-      if (hasContentChange) {
-        // Debounce layout recalculation
-        this.scheduleConnectionsRender();
-      }
-    });
-
-    // Observe the entire container for changes
-    observer.observe(this.container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ['style'], // Watch for style changes that affect dimensions
-    });
   }
 
   /**
@@ -147,16 +115,7 @@ export class MindMapRenderer {
     // Title
     const title = document.createElement('div');
     title.className = 'node-title';
-    // Use HTML content if available to preserve images/formatting
-    if (node.titleHtml) {
-      title.innerHTML = node.titleHtml;
-      // Debug: verify HTML is being rendered
-      if (node.titleHtml.includes('<img')) {
-        console.log('[Renderer] Rendering title with image for node:', node.id, node.titleHtml.substring(0, 100));
-      }
-    } else {
-      title.textContent = node.title;
-    }
+    title.textContent = node.title;
     title.setAttribute('data-field', 'title');
     content.appendChild(title);
 
@@ -164,16 +123,7 @@ export class MindMapRenderer {
     if (node.description !== undefined) {
       const description = document.createElement('div');
       description.className = 'node-description';
-      // Use HTML content if available to preserve images/formatting
-      if (node.descriptionHtml) {
-        description.innerHTML = node.descriptionHtml;
-        // Debug: verify HTML is being rendered
-        if (node.descriptionHtml.includes('<img')) {
-          console.log('[Renderer] Rendering description with image for node:', node.id, node.descriptionHtml.substring(0, 100));
-        }
-      } else {
-        description.textContent = node.description ?? '';
-      }
+      description.textContent = node.description ?? '';
       description.setAttribute('data-field', 'description');
       content.appendChild(description);
     }
@@ -201,10 +151,6 @@ export class MindMapRenderer {
     // Double-click to edit
     title.addEventListener('dblclick', (e) => {
       e.stopPropagation();
-      // Save current HTML content before editing to preserve images
-      if (title.innerHTML && title.innerHTML.includes('<img')) {
-        (node as any)._preservedTitleHtml = title.innerHTML;
-      }
       this.enableEditing(title, node.id, 'title');
     });
 
@@ -219,10 +165,6 @@ export class MindMapRenderer {
     if (descEl) {
       descEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        // Save current HTML content before editing to preserve images
-        if ((descEl as HTMLElement).innerHTML && (descEl as HTMLElement).innerHTML.includes('<img')) {
-          (node as any)._preservedDescriptionHtml = (descEl as HTMLElement).innerHTML;
-        }
         this.enableEditing(descEl as HTMLElement, node.id, 'description');
       });
     }
@@ -354,11 +296,7 @@ export class MindMapRenderer {
 
     const dropdown = document.createElement('div');
     dropdown.className = 'toolbar-dropdown';
-
-    // 只有非根节点才显示 "Add A Sibling Card" 选项
-    const isRootNode = !node.parentId;
     dropdown.innerHTML = `
-      ${!isRootNode ? `
       <div class="dropdown-item" data-action="add-sibling">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/>
@@ -366,7 +304,6 @@ export class MindMapRenderer {
         </svg>
         Add A Sibling Card
       </div>
-      ` : ''}
       <div class="dropdown-item" data-action="add-child">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/>
@@ -475,7 +412,6 @@ export class MindMapRenderer {
    */
   private enableEditing(element: HTMLElement, nodeId: string, field: string, focus = true) {
     const originalText = element.textContent || '';
-    const originalHtml = element.innerHTML || '';
 
     element.contentEditable = 'true';
     if (focus) {
@@ -491,43 +427,9 @@ export class MindMapRenderer {
       selection?.addRange(range);
     }
 
-    // Save HTML content immediately on paste (to capture pasted images)
-    const handlePaste = () => {
-      // Use setTimeout to let the paste complete first
-      setTimeout(() => {
-        const newHtml = element.innerHTML || '';
-        const newText = element.textContent || '';
-        if (newHtml.includes('<img')) {
-          // Image was pasted - save immediately
-          console.log('[Renderer] Image pasted, auto-saving for node:', nodeId, 'field:', field);
-          const updates: any = { [field]: newText, [`${field}Html`]: newHtml };
-          this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
-        }
-      }, 0);
-    };
-
-    // Save HTML content on input if it contains images
-    const handleInput = () => {
-      const newHtml = element.innerHTML || '';
-      if (newHtml.includes('<img')) {
-        const newText = element.textContent || '';
-        // Auto-save if images are present
-        console.log('[Renderer] Image detected in input, auto-saving for node:', nodeId, 'field:', field);
-        const updates: any = { [field]: newText, [`${field}Html`]: newHtml };
-        this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
-      }
-    };
-
-    element.addEventListener('paste', handlePaste);
-    element.addEventListener('input', handleInput);
-
     const saveEdit = () => {
       element.contentEditable = 'false';
-      element.removeEventListener('paste', handlePaste);
-      element.removeEventListener('input', handleInput);
-
       const newText = element.textContent || '';
-      const newHtml = element.innerHTML || '';
 
       // Remove new-card class if user added content
       if (newText.trim()) {
@@ -536,30 +438,14 @@ export class MindMapRenderer {
         card?.classList.remove('new-card');
       }
 
-      if (newText !== originalText || newHtml.includes('<img')) {
-        // Save both text and HTML to preserve images and formatting
-        const updates: any = { [field]: newText };
-        // Save HTML if it contains tags (especially images)
-        if (newHtml.includes('<')) {
-          updates[`${field}Html`] = newHtml;
-        }
-        this.onNodeAction?.('edit', nodeId, { field, value: newText, html: newHtml });
-
-        // Trigger layout reflow after content change
-        this.scheduleConnectionsRender();
+      if (newText !== originalText) {
+        this.onNodeAction?.('edit', nodeId, { field, value: newText });
       }
     };
 
     const cancelEdit = () => {
       element.contentEditable = 'false';
-      element.removeEventListener('paste', handlePaste);
-      element.removeEventListener('input', handleInput);
-      // Restore original HTML to preserve images
-      if (originalHtml.includes('<')) {
-        element.innerHTML = originalHtml;
-      } else {
-        element.textContent = originalText;
-      }
+      element.textContent = originalText;
     };
 
     element.addEventListener(
@@ -622,24 +508,14 @@ export class MindMapRenderer {
     if (updates.title !== undefined) {
       const titleEl = card.querySelector('.node-title');
       if (titleEl) {
-        // Use HTML if available to preserve images
-        if ((updates as any).titleHtml) {
-          (titleEl as HTMLElement).innerHTML = (updates as any).titleHtml;
-        } else {
-          titleEl.textContent = updates.title;
-        }
+        titleEl.textContent = updates.title;
       }
     }
 
     if (updates.description !== undefined) {
       const descEl = card.querySelector('.node-description');
       if (descEl) {
-        // Use HTML if available to preserve images
-        if ((updates as any).descriptionHtml) {
-          (descEl as HTMLElement).innerHTML = (updates as any).descriptionHtml;
-        } else {
-          descEl.textContent = updates.description;
-        }
+        descEl.textContent = updates.description;
       }
     }
   }
@@ -731,9 +607,6 @@ export class MindMapRenderer {
       if (!this.dragActive && dx + dy > 8) {
         this.dragActive = true;
         wrapper.classList.add('dragging');
-        // Elevate dragged element above connectors
-        wrapper.style.zIndex = '1000';
-        wrapper.style.position = 'relative';
         this.ensurePlaceholderOverlay();
         event.preventDefault();
       }
@@ -770,10 +643,6 @@ export class MindMapRenderer {
 
       card.releasePointerCapture(event.pointerId);
       wrapper.classList.remove('dragging');
-
-      // Reset z-index and position
-      wrapper.style.zIndex = '';
-      wrapper.style.position = '';
 
       // 恢复文本选择和光标
       document.body.style.userSelect = '';
@@ -826,8 +695,7 @@ export class MindMapRenderer {
     this.dragRaf = window.requestAnimationFrame(() => {
       wrapper.style.transform = `translate(${this.dragDx}px, ${this.dragDy}px)`;
       this.dragRaf = 0;
-      // Don't re-render connectors during drag - keep them frozen at last committed layout
-      // Connectors will only update on drop (in endDrag handler)
+      this.scheduleConnectionsRender();
     });
   }
 
@@ -859,163 +727,6 @@ export class MindMapRenderer {
     // 恢复拖拽元素的 pointer-events
     draggingWrapper.style.pointerEvents = originalPointerEvents;
 
-    // PHASE 1: Check if cursor is in a child-lane drop zone
-    // This takes highest precedence
-    const CHILD_GAP_MIN = 8; // Minimum gap after parent card's right edge
-    const CHILD_GAP_MAX = 88; // Maximum distance for child dropzone (80px wide zone)
-    const Y_TOLERANCE = 20; // Vertical tolerance above/below parent card
-
-    // Find ALL visible cards and build their child-lane dropzones
-    // Use consistent screen coordinates for both hit-test and placeholder
-    const allWrappers = Array.from(this.container.querySelectorAll('.mindmap-node-wrapper')) as HTMLElement[];
-
-    // Find the BEST matching child-lane dropzone (closest parent card to the left of pointer)
-    let bestMatch: { targetId: string; rect: DOMRect; distance: number } | null = null;
-
-    for (const wrapper of allWrappers) {
-      const card = wrapper.querySelector('.mindmap-node') as HTMLElement;
-      if (!card) continue;
-
-      const targetId = wrapper.getAttribute('data-node-id');
-      if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
-        continue;
-      }
-
-      // Get card bounds in screen coordinates (same as clientX/clientY)
-      const cardRect = card.getBoundingClientRect();
-
-      // Define child dropzone rectangle for this parent card
-      const dropZone = {
-        left: cardRect.right + CHILD_GAP_MIN,
-        right: cardRect.right + CHILD_GAP_MAX,
-        top: cardRect.top - Y_TOLERANCE,
-        bottom: cardRect.bottom + Y_TOLERANCE,
-      };
-
-      // Check if pointer is inside this dropzone
-      const isInDropZone =
-        clientX >= dropZone.left &&
-        clientX <= dropZone.right &&
-        clientY >= dropZone.top &&
-        clientY <= dropZone.bottom;
-
-      if (isInDropZone) {
-        // Calculate horizontal distance from pointer to the parent card's right edge
-        // This helps us pick the closest parent when multiple dropzones overlap
-        const distanceFromParent = clientX - cardRect.right;
-
-        if (!bestMatch || distanceFromParent < bestMatch.distance) {
-          // Render placeholder at the exact dropzone location
-          // Use the same coordinates that triggered the hit-test
-          const placeholderLeft = cardRect.right + 24; // Visual offset for clarity
-          const placeholderRect = new DOMRect(
-            placeholderLeft,
-            cardRect.top,
-            cardRect.width,
-            cardRect.height
-          );
-
-          bestMatch = {
-            targetId,
-            rect: placeholderRect,
-            distance: distanceFromParent,
-          };
-        }
-      }
-    }
-
-    // If we found a valid child-lane dropzone, use it
-    if (bestMatch) {
-      return {
-        mode: 'child',
-        targetId: bestMatch.targetId,
-        rect: bestMatch.rect,
-      };
-    }
-
-    // PHASE 2: Check if we're in a gap between siblings
-    const nodeChildren = el?.closest('.node-children') as HTMLElement | null;
-    if (nodeChildren) {
-      // We're in the sibling lane - find the closest sibling cards
-      const siblingWrappers = Array.from(
-        nodeChildren.querySelectorAll(':scope > .mindmap-node-wrapper')
-      ) as HTMLElement[];
-
-      // Find which gap we're in
-      for (let i = 0; i < siblingWrappers.length; i++) {
-        const wrapper = siblingWrappers[i];
-        const card = wrapper.querySelector('.mindmap-node') as HTMLElement;
-        if (!card) continue;
-
-        const rect = card.getBoundingClientRect();
-        const nextWrapper = siblingWrappers[i + 1];
-        const nextCard = nextWrapper?.querySelector('.mindmap-node') as HTMLElement;
-
-        // Check if cursor is in the gap after this card
-        if (nextCard) {
-          const nextRect = nextCard.getBoundingClientRect();
-          const gapTop = rect.bottom;
-          const gapBottom = nextRect.top;
-          const gapMid = (gapTop + gapBottom) / 2;
-
-          if (clientY >= gapTop && clientY <= gapBottom) {
-            // We're in the gap between this card and the next
-            const targetId = nextWrapper.getAttribute('data-node-id');
-            if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
-              continue;
-            }
-
-            // Position placeholder at the exact midpoint of the gap
-            const placeholderHeight = rect.height;
-            const placeholderTop = gapMid - placeholderHeight / 2;
-
-            return {
-              mode: 'sibling-before',
-              targetId,
-              rect: new DOMRect(rect.left, placeholderTop, rect.width, placeholderHeight),
-            };
-          }
-        }
-
-        // Check if cursor is below the last sibling
-        if (i === siblingWrappers.length - 1 && clientY > rect.bottom) {
-          const targetId = wrapper.getAttribute('data-node-id');
-          if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
-            continue;
-          }
-
-          // Position placeholder below the last card
-          const gap = 12;
-          const placeholderTop = rect.bottom + gap / 2 - rect.height / 2;
-
-          return {
-            mode: 'sibling-after',
-            targetId,
-            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
-          };
-        }
-
-        // Check if cursor is above the first sibling
-        if (i === 0 && clientY < rect.top) {
-          const targetId = wrapper.getAttribute('data-node-id');
-          if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
-            continue;
-          }
-
-          // Position placeholder above the first card
-          const gap = 12;
-          const placeholderTop = rect.top - gap / 2 - rect.height / 2;
-
-          return {
-            mode: 'sibling-before',
-            targetId,
-            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
-          };
-        }
-      }
-    }
-
-    // PHASE 3: Fallback - check if hovering directly over a card for sibling insertion
     const targetWrapper = el?.closest('.mindmap-node-wrapper') as HTMLElement | null;
     const targetCard = el?.closest('.mindmap-node') as HTMLElement | null;
 
@@ -1031,62 +742,37 @@ export class MindMapRenderer {
     // 计算指针在目标卡片上的位置
     const rect = targetCard.getBoundingClientRect();
     const y = clientY - rect.top;
-    const zoneTop = rect.height * 0.33;
-    const zoneBottom = rect.height * 0.67;
+    const zoneTop = rect.height * 0.25;
+    const zoneBottom = rect.height * 0.75;
 
-    // Only handle sibling insertion when hovering over cards
-    // Child mode is handled exclusively by PHASE 1 (child-lane zone)
+    // 根据位置返回唯一的 drop intent
     if (y < zoneTop) {
-      // Sibling before: position at the midpoint between prev and current
-      const parentChildren = targetWrapper.parentElement;
-      const siblings = parentChildren ? Array.from(parentChildren.querySelectorAll(':scope > .mindmap-node-wrapper')) : [];
-      const currentIndex = siblings.indexOf(targetWrapper);
-      const prevWrapper = currentIndex > 0 ? siblings[currentIndex - 1] as HTMLElement : null;
-      const prevCard = prevWrapper?.querySelector('.mindmap-node') as HTMLElement;
-
-      let placeholderTop: number;
-      if (prevCard) {
-        const prevRect = prevCard.getBoundingClientRect();
-        const gapMid = (prevRect.bottom + rect.top) / 2;
-        placeholderTop = gapMid - rect.height / 2;
-      } else {
-        const gap = 12;
-        placeholderTop = rect.top - gap / 2 - rect.height / 2;
-      }
-
+      // Sibling before: 在目标上方插入
+      const gap = 12;
+      const placeholderTop = rect.top - rect.height - gap;
       return {
         mode: 'sibling-before',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
     } else if (y > zoneBottom) {
-      // Sibling after: position at the midpoint between current and next
-      const parentChildren = targetWrapper.parentElement;
-      const siblings = parentChildren ? Array.from(parentChildren.querySelectorAll(':scope > .mindmap-node-wrapper')) : [];
-      const currentIndex = siblings.indexOf(targetWrapper);
-      const nextWrapper = currentIndex < siblings.length - 1 ? siblings[currentIndex + 1] as HTMLElement : null;
-      const nextCard = nextWrapper?.querySelector('.mindmap-node') as HTMLElement;
-
-      let placeholderTop: number;
-      if (nextCard) {
-        const nextRect = nextCard.getBoundingClientRect();
-        const gapMid = (rect.bottom + nextRect.top) / 2;
-        placeholderTop = gapMid - rect.height / 2;
-      } else {
-        const gap = 12;
-        placeholderTop = rect.bottom + gap / 2 - rect.height / 2;
-      }
-
+      // Sibling after: 在目标下方插入
+      const gap = 12;
+      const placeholderTop = rect.bottom + gap;
       return {
         mode: 'sibling-after',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
+    } else {
+      // Child: 作为目标的子节点
+      const childLeft = rect.left + rect.width + 24;
+      return {
+        mode: 'child',
+        targetId,
+        rect: new DOMRect(childLeft, rect.top, rect.width, rect.height),
+      };
     }
-
-    // Middle zone of card: no drop action
-    // (Child mode requires being in the child-lane zone, not hovering over the parent)
-    return null;
   }
 
   private ensurePlaceholderOverlay() {
@@ -1392,8 +1078,7 @@ export class MindMapRenderer {
 
       if (childRects.length === 0) return;
 
-      // Position trunk closer to parent to make horizontal connectors longer (3× previous length)
-      const desiredTrunkX = snap(parentRight + 10);
+      const desiredTrunkX = snap(parentRight + 32);
       const horizontalGap = 0;
       const minChildLeft = Math.min(...childRects.map((child) => child.left));
       const maxTrunkX = snap(minChildLeft - horizontalGap);
@@ -1465,21 +1150,13 @@ export class MindMapRenderer {
 
       childRects.forEach((childRect) => {
         const isInPath = childRect.wrapper.classList.contains('in-path');
-
-        // Skip rendering the horizontal connector for the dragged node
-        // This creates the "detached from branch" visual effect during drag
-        if (this.dragActive && childRect.id === this.draggingNodeId) {
-          // Don't render this child's horizontal connector
-          // The vertical trunk remains visible, only this specific branch is hidden
-        } else {
-          const line = document.createElementNS(svgNS, 'line');
-          line.setAttribute('x1', `${trunkX}`);
-          line.setAttribute('y1', `${childRect.centerY}`);
-          line.setAttribute('x2', `${childRect.left - horizontalGap}`);
-          line.setAttribute('y2', `${childRect.centerY}`);
-          line.setAttribute('class', `mindmap-connection-line${isInPath || pathInPath ? ' in-path' : ''}`);
-          this.connectionsSvg!.appendChild(line);
-        }
+        const line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1', `${trunkX}`);
+        line.setAttribute('y1', `${childRect.centerY}`);
+        line.setAttribute('x2', `${childRect.left - horizontalGap}`);
+        line.setAttribute('y2', `${childRect.centerY}`);
+        line.setAttribute('class', `mindmap-connection-line${isInPath || pathInPath ? ' in-path' : ''}`);
+        this.connectionsSvg!.appendChild(line);
 
         renderNodeConnections(childRect.node);
       });

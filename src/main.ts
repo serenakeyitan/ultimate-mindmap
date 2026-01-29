@@ -165,18 +165,6 @@ class UltimateMindMap {
     container.addEventListener('pointerup', endPan);
     container.addEventListener('pointercancel', endPan);
 
-    // Deselect node when clicking on canvas background
-    container.addEventListener('click', (event) => {
-      if (this.renderer.isDragging()) return;
-      if (isInteractiveTarget(event.target)) return;
-
-      // Clear selection when clicking on canvas background
-      if (this.state.selectedNodeId) {
-        this.state.selectedNodeId = null;
-        this.updatePathHighlight();
-      }
-    });
-
     // Prevent native drag on canvas background (so pointer pan wins)
     container.addEventListener('dragstart', (event) => {
       const target = event.target as HTMLElement | null;
@@ -447,19 +435,8 @@ class UltimateMindMap {
 
       case 'edit':
         if (data && data.field) {
-          const updates: any = { [data.field]: data.value };
-          // Preserve HTML content if it contains images or formatting
-          if (data.html && data.html.includes('<')) {
-            updates[`${data.field}Html`] = data.html;
-            // Debug: verify HTML is being saved
-            if (data.html.includes('<img')) {
-              console.log('[Main] Saving HTML with image for node:', nodeId, 'field:', data.field, 'html:', data.html.substring(0, 100));
-            }
-          }
-          parser.updateNode(nodes, nodeId, updates);
+          parser.updateNode(nodes, nodeId, { [data.field]: data.value });
           this.updateMarkdown();
-          // Trigger layout reflow after content changes
-          this.renderer.requestLayoutCheck();
         }
         break;
 
@@ -523,8 +500,20 @@ class UltimateMindMap {
       if (parent) {
         parent.collapsed = false;
       }
+    } else {
+      // If sibling was added at root, attach under the target node to keep a visible connection
+      const target = parser.findNodeById(this.currentDocument.nodes, nodeId);
+      if (target) {
+        const rootIndex = this.currentDocument.nodes.findIndex((node) => node.id === createdNode.id);
+        if (rootIndex >= 0) {
+          this.currentDocument.nodes.splice(rootIndex, 1);
+        }
+        createdNode.parentId = target.id;
+        createdNode.level = target.level + 1;
+        target.collapsed = false;
+        target.children.push(createdNode);
+      }
     }
-    // 如果是根节点的兄弟，保持为根节点（不需要额外处理）
 
     this.renderer.render(this.currentDocument.nodes);
     this.focusNode(createdNode.id);
