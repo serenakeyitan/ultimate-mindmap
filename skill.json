@@ -1,0 +1,89 @@
+{
+  "name": "ultimate-mindmap",
+  "version": "1.0.0",
+  "description": "Interactive mind map skill for visualizing markdown as hierarchical cards. Upload resources and generate structured mind maps with AI.",
+  "author": "Your Name",
+  "entry": "src/skill/interface.ts",
+  "commands": [
+    {
+      "name": "generate",
+      "description": "Generate a mind map from uploaded resources",
+      "parameters": {
+        "sources": {
+          "type": "array",
+          "description": "Array of source files (PDF, text, markdown, URLs)",
+          "required": true
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Optional prompt to guide AI generation",
+          "required": false
+        },
+        "maxDepth": {
+          "type": "number",
+          "description": "Maximum hierarchy depth (default: 6)",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "upload",
+      "description": "Upload files for mind map generation",
+      "parameters": {
+        "files": {
+          "type": "array",
+          "description": "Array of File objects to upload",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "export",
+      "description": "Export mind map to markdown or JSON",
+      "parameters": {
+        "format": {
+          "type": "string",
+          "description": "Export format: 'markdown' or 'json'",
+          "required": true
+        },
+        "data": {
+          "type": "object",
+          "description": "Mind map data to export",
+          "required": true
+        },
+        "filename": {
+          "type": "string",
+          "description": "Output filename",
+          "required": true
+        }
+      }
+    }
+  ],
+  "ui": {
+    "type": "web",
+    "port": 3000,
+    "path": "/"
+  },
+  "features": [
+    "markdown-parsing",
+    "hierarchical-visualization",
+    "inline-editing",
+    "source-tracing",
+    "ai-generation",
+    "file-upload"
+  ],
+  "supported_formats": [
+    "pdf",
+    "txt",
+    "md",
+    "markdown"
+  ],
+  "keywords": [
+    "mind-map",
+    "visualization",
+    "markdown",
+    "knowledge-management",
+    "study-guide",
+    "note-taking"
+  ]
+}
