@@ -681,13 +681,17 @@ body {
   outline: none;
   display: block;
   min-height: 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .node-title[contenteditable="true"] {
-  outline: none;
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
   background: rgba(124, 58, 237, 0.05);
-  padding: 4px 10px;
-  margin: -4px -10px;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-radius: 4px;
 }
 
 .node-description {
@@ -703,13 +707,17 @@ body {
   outline: none;
   display: block;
   min-height: 22px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .node-description[contenteditable="true"] {
-  outline: none;
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
   background: rgba(124, 58, 237, 0.05);
-  padding: 4px 10px;
-  margin: -4px -10px;
+  padding: 4px 0;
+  margin-top: 10px;
+  border-radius: 4px;
 }
 
 .node-count {
@@ -1273,14 +1281,7 @@ body {
   background: var(--primary-light);
 }
 
-/* Editable Content */
-.node-title[contenteditable="true"],
-.node-description[contenteditable="true"] {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-  padding: 2px;
-}
+/* Editable Content styles are defined above with .node-title and .node-description */
 
 /* Animations */
 @keyframes slideIn {

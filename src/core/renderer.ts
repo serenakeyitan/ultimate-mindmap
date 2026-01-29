@@ -296,7 +296,11 @@ export class MindMapRenderer {
 
     const dropdown = document.createElement('div');
     dropdown.className = 'toolbar-dropdown';
+
+    // 只有非根节点才显示 "Add A Sibling Card" 选项
+    const isRootNode = !node.parentId;
     dropdown.innerHTML = `
+      ${!isRootNode ? `
       <div class="dropdown-item" data-action="add-sibling">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/>
@@ -304,6 +308,7 @@ export class MindMapRenderer {
         </svg>
         Add A Sibling Card
       </div>
+      ` : ''}
       <div class="dropdown-item" data-action="add-child">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/>
@@ -607,6 +612,9 @@ export class MindMapRenderer {
       if (!this.dragActive && dx + dy > 8) {
         this.dragActive = true;
         wrapper.classList.add('dragging');
+        // Elevate dragged element above connectors
+        wrapper.style.zIndex = '1000';
+        wrapper.style.position = 'relative';
         this.ensurePlaceholderOverlay();
         event.preventDefault();
       }
@@ -643,6 +651,10 @@ export class MindMapRenderer {
 
       card.releasePointerCapture(event.pointerId);
       wrapper.classList.remove('dragging');
+
+      // Reset z-index and position
+      wrapper.style.zIndex = '';
+      wrapper.style.position = '';
 
       // 恢复文本选择和光标
       document.body.style.userSelect = '';
@@ -695,7 +707,8 @@ export class MindMapRenderer {
     this.dragRaf = window.requestAnimationFrame(() => {
       wrapper.style.transform = `translate(${this.dragDx}px, ${this.dragDy}px)`;
       this.dragRaf = 0;
-      this.scheduleConnectionsRender();
+      // Don't re-render connectors during drag - keep them frozen at last committed layout
+      // Connectors will only update on drop (in endDrag handler)
     });
   }
 
@@ -727,6 +740,163 @@ export class MindMapRenderer {
     // 恢复拖拽元素的 pointer-events
     draggingWrapper.style.pointerEvents = originalPointerEvents;
 
+    // PHASE 1: Check if cursor is in a child-lane drop zone
+    // This takes highest precedence
+    const CHILD_GAP_MIN = 8; // Minimum gap after parent card's right edge
+    const CHILD_GAP_MAX = 88; // Maximum distance for child dropzone (80px wide zone)
+    const Y_TOLERANCE = 20; // Vertical tolerance above/below parent card
+
+    // Find ALL visible cards and build their child-lane dropzones
+    // Use consistent screen coordinates for both hit-test and placeholder
+    const allWrappers = Array.from(this.container.querySelectorAll('.mindmap-node-wrapper')) as HTMLElement[];
+
+    // Find the BEST matching child-lane dropzone (closest parent card to the left of pointer)
+    let bestMatch: { targetId: string; rect: DOMRect; distance: number } | null = null;
+
+    for (const wrapper of allWrappers) {
+      const card = wrapper.querySelector('.mindmap-node') as HTMLElement;
+      if (!card) continue;
+
+      const targetId = wrapper.getAttribute('data-node-id');
+      if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
+        continue;
+      }
+
+      // Get card bounds in screen coordinates (same as clientX/clientY)
+      const cardRect = card.getBoundingClientRect();
+
+      // Define child dropzone rectangle for this parent card
+      const dropZone = {
+        left: cardRect.right + CHILD_GAP_MIN,
+        right: cardRect.right + CHILD_GAP_MAX,
+        top: cardRect.top - Y_TOLERANCE,
+        bottom: cardRect.bottom + Y_TOLERANCE,
+      };
+
+      // Check if pointer is inside this dropzone
+      const isInDropZone =
+        clientX >= dropZone.left &&
+        clientX <= dropZone.right &&
+        clientY >= dropZone.top &&
+        clientY <= dropZone.bottom;
+
+      if (isInDropZone) {
+        // Calculate horizontal distance from pointer to the parent card's right edge
+        // This helps us pick the closest parent when multiple dropzones overlap
+        const distanceFromParent = clientX - cardRect.right;
+
+        if (!bestMatch || distanceFromParent < bestMatch.distance) {
+          // Render placeholder at the exact dropzone location
+          // Use the same coordinates that triggered the hit-test
+          const placeholderLeft = cardRect.right + 24; // Visual offset for clarity
+          const placeholderRect = new DOMRect(
+            placeholderLeft,
+            cardRect.top,
+            cardRect.width,
+            cardRect.height
+          );
+
+          bestMatch = {
+            targetId,
+            rect: placeholderRect,
+            distance: distanceFromParent,
+          };
+        }
+      }
+    }
+
+    // If we found a valid child-lane dropzone, use it
+    if (bestMatch) {
+      return {
+        mode: 'child',
+        targetId: bestMatch.targetId,
+        rect: bestMatch.rect,
+      };
+    }
+
+    // PHASE 2: Check if we're in a gap between siblings
+    const nodeChildren = el?.closest('.node-children') as HTMLElement | null;
+    if (nodeChildren) {
+      // We're in the sibling lane - find the closest sibling cards
+      const siblingWrappers = Array.from(
+        nodeChildren.querySelectorAll(':scope > .mindmap-node-wrapper')
+      ) as HTMLElement[];
+
+      // Find which gap we're in
+      for (let i = 0; i < siblingWrappers.length; i++) {
+        const wrapper = siblingWrappers[i];
+        const card = wrapper.querySelector('.mindmap-node') as HTMLElement;
+        if (!card) continue;
+
+        const rect = card.getBoundingClientRect();
+        const nextWrapper = siblingWrappers[i + 1];
+        const nextCard = nextWrapper?.querySelector('.mindmap-node') as HTMLElement;
+
+        // Check if cursor is in the gap after this card
+        if (nextCard) {
+          const nextRect = nextCard.getBoundingClientRect();
+          const gapTop = rect.bottom;
+          const gapBottom = nextRect.top;
+          const gapMid = (gapTop + gapBottom) / 2;
+
+          if (clientY >= gapTop && clientY <= gapBottom) {
+            // We're in the gap between this card and the next
+            const targetId = nextWrapper.getAttribute('data-node-id');
+            if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
+              continue;
+            }
+
+            // Position placeholder at the exact midpoint of the gap
+            const placeholderHeight = rect.height;
+            const placeholderTop = gapMid - placeholderHeight / 2;
+
+            return {
+              mode: 'sibling-before',
+              targetId,
+              rect: new DOMRect(rect.left, placeholderTop, rect.width, placeholderHeight),
+            };
+          }
+        }
+
+        // Check if cursor is below the last sibling
+        if (i === siblingWrappers.length - 1 && clientY > rect.bottom) {
+          const targetId = wrapper.getAttribute('data-node-id');
+          if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
+            continue;
+          }
+
+          // Position placeholder below the last card
+          const gap = 12;
+          const placeholderTop = rect.bottom + gap / 2 - rect.height / 2;
+
+          return {
+            mode: 'sibling-after',
+            targetId,
+            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
+          };
+        }
+
+        // Check if cursor is above the first sibling
+        if (i === 0 && clientY < rect.top) {
+          const targetId = wrapper.getAttribute('data-node-id');
+          if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
+            continue;
+          }
+
+          // Position placeholder above the first card
+          const gap = 12;
+          const placeholderTop = rect.top - gap / 2 - rect.height / 2;
+
+          return {
+            mode: 'sibling-before',
+            targetId,
+            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
+          };
+        }
+      }
+    }
+
+    // PHASE 3: Fallback - check if hovering directly over a card for sibling insertion
     const targetWrapper = el?.closest('.mindmap-node-wrapper') as HTMLElement | null;
     const targetCard = el?.closest('.mindmap-node') as HTMLElement | null;
 
@@ -742,37 +912,62 @@ export class MindMapRenderer {
     // 计算指针在目标卡片上的位置
     const rect = targetCard.getBoundingClientRect();
     const y = clientY - rect.top;
-    const zoneTop = rect.height * 0.25;
-    const zoneBottom = rect.height * 0.75;
+    const zoneTop = rect.height * 0.33;
+    const zoneBottom = rect.height * 0.67;
 
-    // 根据位置返回唯一的 drop intent
+    // Only handle sibling insertion when hovering over cards
+    // Child mode is handled exclusively by PHASE 1 (child-lane zone)
     if (y < zoneTop) {
-      // Sibling before: 在目标上方插入
-      const gap = 12;
-      const placeholderTop = rect.top - rect.height - gap;
+      // Sibling before: position at the midpoint between prev and current
+      const parentChildren = targetWrapper.parentElement;
+      const siblings = parentChildren ? Array.from(parentChildren.querySelectorAll(':scope > .mindmap-node-wrapper')) : [];
+      const currentIndex = siblings.indexOf(targetWrapper);
+      const prevWrapper = currentIndex > 0 ? siblings[currentIndex - 1] as HTMLElement : null;
+      const prevCard = prevWrapper?.querySelector('.mindmap-node') as HTMLElement;
+
+      let placeholderTop: number;
+      if (prevCard) {
+        const prevRect = prevCard.getBoundingClientRect();
+        const gapMid = (prevRect.bottom + rect.top) / 2;
+        placeholderTop = gapMid - rect.height / 2;
+      } else {
+        const gap = 12;
+        placeholderTop = rect.top - gap / 2 - rect.height / 2;
+      }
+
       return {
         mode: 'sibling-before',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
     } else if (y > zoneBottom) {
-      // Sibling after: 在目标下方插入
-      const gap = 12;
-      const placeholderTop = rect.bottom + gap;
+      // Sibling after: position at the midpoint between current and next
+      const parentChildren = targetWrapper.parentElement;
+      const siblings = parentChildren ? Array.from(parentChildren.querySelectorAll(':scope > .mindmap-node-wrapper')) : [];
+      const currentIndex = siblings.indexOf(targetWrapper);
+      const nextWrapper = currentIndex < siblings.length - 1 ? siblings[currentIndex + 1] as HTMLElement : null;
+      const nextCard = nextWrapper?.querySelector('.mindmap-node') as HTMLElement;
+
+      let placeholderTop: number;
+      if (nextCard) {
+        const nextRect = nextCard.getBoundingClientRect();
+        const gapMid = (rect.bottom + nextRect.top) / 2;
+        placeholderTop = gapMid - rect.height / 2;
+      } else {
+        const gap = 12;
+        placeholderTop = rect.bottom + gap / 2 - rect.height / 2;
+      }
+
       return {
         mode: 'sibling-after',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
-    } else {
-      // Child: 作为目标的子节点
-      const childLeft = rect.left + rect.width + 24;
-      return {
-        mode: 'child',
-        targetId,
-        rect: new DOMRect(childLeft, rect.top, rect.width, rect.height),
-      };
     }
+
+    // Middle zone of card: no drop action
+    // (Child mode requires being in the child-lane zone, not hovering over the parent)
+    return null;
   }
 
   private ensurePlaceholderOverlay() {
@@ -1150,13 +1345,21 @@ export class MindMapRenderer {
 
       childRects.forEach((childRect) => {
         const isInPath = childRect.wrapper.classList.contains('in-path');
-        const line = document.createElementNS(svgNS, 'line');
-        line.setAttribute('x1', `${trunkX}`);
-        line.setAttribute('y1', `${childRect.centerY}`);
-        line.setAttribute('x2', `${childRect.left - horizontalGap}`);
-        line.setAttribute('y2', `${childRect.centerY}`);
-        line.setAttribute('class', `mindmap-connection-line${isInPath || pathInPath ? ' in-path' : ''}`);
-        this.connectionsSvg!.appendChild(line);
+
+        // Skip rendering the horizontal connector for the dragged node
+        // This creates the "detached from branch" visual effect during drag
+        if (this.dragActive && childRect.id === this.draggingNodeId) {
+          // Don't render this child's horizontal connector
+          // The vertical trunk remains visible, only this specific branch is hidden
+        } else {
+          const line = document.createElementNS(svgNS, 'line');
+          line.setAttribute('x1', `${trunkX}`);
+          line.setAttribute('y1', `${childRect.centerY}`);
+          line.setAttribute('x2', `${childRect.left - horizontalGap}`);
+          line.setAttribute('y2', `${childRect.centerY}`);
+          line.setAttribute('class', `mindmap-connection-line${isInPath || pathInPath ? ' in-path' : ''}`);
+          this.connectionsSvg!.appendChild(line);
+        }
 
         renderNodeConnections(childRect.node);
       });
