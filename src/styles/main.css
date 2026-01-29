@@ -20,6 +20,7 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  --child-gap: 16px;
 }
 
 body {
@@ -452,6 +453,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 36px;
   transform-origin: 0 0;
   will-change: transform;
 }
@@ -467,12 +469,17 @@ body {
   position: relative;
   align-items: center;
   gap: 16px;
-  padding-bottom: 36px;
-  z-index: 1;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  z-index: 0;
 }
 
 .mindmap-node-wrapper.toolbar-active {
-  z-index: 5;
+  z-index: 9998;
+}
+
+.mindmap-node-wrapper:hover {
+  z-index: 9998;
 }
 
 .mindmap-empty {
@@ -495,7 +502,7 @@ body {
   border: 1px solid var(--border-gray);
   border-radius: 8px;
   padding: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   box-shadow: var(--shadow-sm);
   /* Only transition visual properties to prevent flicker during layout changes */
   transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
@@ -583,6 +590,16 @@ body {
   stroke: var(--primary);
 }
 
+.mindmap-connection-debug-line {
+  stroke: #EF4444;
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+}
+
+.mindmap-connection-debug-dot {
+  fill: #EF4444;
+}
+
 /* Disable legacy pseudo-element connectors (SVG handles all lines) */
 .node-children::before,
 .node-children .mindmap-node-wrapper::before,
@@ -601,7 +618,7 @@ body {
 .mindmap-node.selected {
   border: 2px solid var(--primary);
   box-shadow: 0 8px 16px -4px rgb(124 58 237 / 0.2);
-  background: linear-gradient(to bottom, #ffffff 0%, #faf9fc 100%);
+  background: inherit;
 }
 
 .mindmap-node.collapsed {
@@ -717,15 +734,12 @@ body {
 }
 
 .node-count::after {
-  content: '';
-  position: absolute;
-  right: -18px;
-  top: 50%;
-  width: 18px;
-  height: 2px;
-  background: #D1D5DB;
-  border-radius: 999px;
-  transform: translateY(-50%);
+  content: none;
+  display: none;
+}
+
+.mindmap-node-wrapper.collapsed .node-count::after {
+  display: none;
 }
 
 .node-count:hover {
@@ -733,7 +747,7 @@ body {
 }
 
 .mindmap-node-wrapper.in-path .node-count::after {
-  background: var(--primary);
+  display: none;
 }
 
 .node-count-expanded {
@@ -761,7 +775,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--child-gap);
 }
 
 .node-children::before {
@@ -833,7 +847,7 @@ body {
   visibility: hidden;
   pointer-events: none;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 2000;
+  z-index: 9999;
   transform: translateY(0);
 }
 
@@ -867,14 +881,6 @@ body {
   color: var(--text-dark);
 }
 
-.toolbar-ask-ai {
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.toolbar-ask-ai span {
-  font-size: 12px;
-}
 
 .toolbar-button.active {
   background: #F5F3FF;
@@ -1006,47 +1012,6 @@ body {
 
 .expand-button:active {
   transform: translateX(0);
-}
-
-/* Ask AI Button */
-.ask-ai-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: #FFFFFF;
-  border: 1px solid var(--primary);
-  border-radius: 6px;
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-top: 12px;
-}
-
-.ask-ai-button:hover {
-  background: var(--primary-light);
-}
-
-/* Trace Back Button */
-.trace-back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--text-dark);
-  color: #FFFFFF;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.trace-back-button:hover {
-  background: #000000;
 }
 
 /* Modal Styles */

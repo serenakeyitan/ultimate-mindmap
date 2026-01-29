@@ -178,9 +178,7 @@ export type NodeAction =
   | 'delete'
   | 'add-sibling'
   | 'add-child'
-  | 'trace-back'
   | 'change-color'
-  | 'ask-ai'
   | 'resize'
   | 'reorder';
 

@@ -44,17 +44,6 @@
         <h1 id="document-title">Insect Biology Overview</h1>
 
         <div class="top-bar-actions">
-          <select id="language-select">
-            <option>English</option>
-            <option>中文</option>
-          </select>
-          <button class="icon-button" id="ai-agent-button">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M8 5V8L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            AI Agent
-          </button>
           <button class="button-primary" id="share-button">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M11 5L7 1L3 5M7 1V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -75,26 +64,11 @@
             </svg>
             Document View
           </button>
-          <button class="view-button" data-view="files">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2 3H6L8 5H14V13H2V3Z" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-            File Browser
-          </button>
         </div>
       </div>
 
       <!-- Content Area -->
       <div class="content-area">
-        <!-- Source Panel (Hidden by default, shown on trace back) -->
-        <div id="source-panel" class="source-panel hidden">
-          <div class="panel-header">
-            <h3>Source Document</h3>
-            <button class="close-button" id="close-source-panel">×</button>
-          </div>
-          <div id="source-content" class="source-content"></div>
-        </div>
-
         <!-- Mind Map Container -->
         <div id="mindmap-container" class="mindmap-container">
           <div id="mindmap-canvas"></div>
@@ -165,33 +139,6 @@
           </div>
         </div>
         <div class="modal-body" id="document-markdown-view"></div>
-      </div>
-    </div>
-
-    <div id="file-browser-modal" class="modal modal-left hidden">
-      <div class="modal-content file-browser-modal modal-left-content">
-        <div class="modal-header">
-          <h2>File Browser</h2>
-          <div class="modal-actions">
-            <button class="close-button" id="close-file-browser-modal">×</button>
-          </div>
-        </div>
-        <div class="modal-body">
-          <div class="file-browser-header">
-            <label class="file-browser-file">
-              <input id="file-browser-input" type="file" accept="application/pdf" multiple />
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M4 2H9L12 5V14H4V2Z" stroke="currentColor" stroke-width="1.5"/>
-                <path d="M9 2V5H12" stroke="currentColor" stroke-width="1.5"/>
-              </svg>
-              <span id="file-browser-filename">Upload PDF</span>
-            </label>
-          </div>
-          <div id="file-browser-list" class="file-browser-list"></div>
-          <div class="file-browser-preview">
-            <iframe id="file-browser-frame" title="PDF Preview"></iframe>
-          </div>
-        </div>
       </div>
     </div>
 

@@ -21,9 +21,15 @@ export class MindMapRenderer {
   private placeholderEl: HTMLElement | null = null;
   private overlayContainer: HTMLElement | null = null;
   private connectionsSvg: SVGSVGElement | null = null;
+  private connectionsRaf = 0;
+  private overlayListenersAttached = false;
+  private normalizePasses = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
+    window.addEventListener('resize', () => {
+      this.scheduleConnectionsRender();
+    });
   }
 
   /**
@@ -31,6 +37,10 @@ export class MindMapRenderer {
    */
   onAction(callback: (action: NodeAction, nodeId: string, data?: any) => void) {
     this.onNodeAction = callback;
+  }
+
+  requestLayoutCheck() {
+    this.scheduleConnectionsRender();
   }
 
   /**
@@ -57,7 +67,8 @@ export class MindMapRenderer {
 
     this.ensurePlaceholderOverlay();
     requestAnimationFrame(() => {
-      this.renderConnections();
+      this.normalizeAllLayouts();
+      this.scheduleConnectionsRender();
     });
     this.animateReflow(previousRects);
   }
@@ -69,6 +80,9 @@ export class MindMapRenderer {
     const wrapper = document.createElement('div');
     wrapper.className = 'mindmap-node-wrapper';
     wrapper.setAttribute('data-node-id', node.id);
+    if (node.collapsed) {
+      wrapper.classList.add('collapsed');
+    }
 
     // Create main card
     const card = document.createElement('div');
@@ -240,20 +254,6 @@ export class MindMapRenderer {
     };
     toolbar.appendChild(copyBtn);
 
-    // Trace back button
-    const traceBtn = document.createElement('button');
-    traceBtn.className = 'toolbar-button';
-    traceBtn.setAttribute('data-tooltip', 'Trace Back to Origin');
-    traceBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M3 5H8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M3 11H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </svg>`;
-    traceBtn.onclick = (e) => {
-      e.stopPropagation();
-      this.onNodeAction?.('trace-back', node.id);
-    };
-    toolbar.appendChild(traceBtn);
 
     // Card color button
     const colorBtn = document.createElement('button');
@@ -272,21 +272,6 @@ export class MindMapRenderer {
     // More options button with dropdown
     const moreBtn = this.createMoreButton(node);
     toolbar.appendChild(moreBtn);
-
-    // Ask AI button
-    const askAIBtn = document.createElement('button');
-    askAIBtn.className = 'toolbar-button toolbar-ask-ai';
-    askAIBtn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M7 1L9 5H13L9.5 8L11 13L7 10L3 13L4.5 8L1 5H5L7 1Z" fill="currentColor"/>
-      </svg>
-      <span>Ask AI</span>
-    `;
-    askAIBtn.onclick = (e) => {
-      e.stopPropagation();
-      this.onNodeAction?.('ask-ai', node.id);
-    };
-    toolbar.appendChild(askAIBtn);
 
     return toolbar;
   }
@@ -578,6 +563,7 @@ export class MindMapRenderer {
           wrapper.style.transition = '';
           wrapper.style.transform = '';
           wrapper.removeEventListener('transitionend', clear);
+          this.scheduleConnectionsRender();
         };
         wrapper.addEventListener('transitionend', clear);
       });
@@ -686,6 +672,7 @@ export class MindMapRenderer {
         wrapper.style.transform = '';
         setTimeout(() => {
           wrapper.style.transition = '';
+          this.scheduleConnectionsRender();
         }, 250);
       }
 
@@ -708,6 +695,7 @@ export class MindMapRenderer {
     this.dragRaf = window.requestAnimationFrame(() => {
       wrapper.style.transform = `translate(${this.dragDx}px, ${this.dragDy}px)`;
       this.dragRaf = 0;
+      this.scheduleConnectionsRender();
     });
   }
 
@@ -717,6 +705,7 @@ export class MindMapRenderer {
       this.dragRaf = 0;
     }
     wrapper.style.transform = '';
+    this.scheduleConnectionsRender();
   }
 
   /**
@@ -796,6 +785,12 @@ export class MindMapRenderer {
     placeholder.className = 'drag-placeholder';
     host.appendChild(placeholder);
     this.placeholderEl = placeholder;
+    if (this.overlayContainer && !this.overlayListenersAttached) {
+      this.overlayContainer.addEventListener('scroll', () => {
+        this.scheduleConnectionsRender();
+      });
+      this.overlayListenersAttached = true;
+    }
     this.hidePlaceholderOverlay();
   }
 
@@ -896,6 +891,130 @@ export class MindMapRenderer {
     this.connectionsSvg = svg;
   }
 
+  private scheduleConnectionsRender() {
+    if (this.connectionsRaf) return;
+    this.connectionsRaf = window.requestAnimationFrame(() => {
+      this.connectionsRaf = 0;
+      if (!this.dragActive) {
+        let changed = this.normalizeAllLayouts();
+        if (this.validateSymmetry()) {
+          changed = true;
+        }
+        if (changed && this.normalizePasses < 3) {
+          this.normalizePasses += 1;
+          this.scheduleConnectionsRender();
+          return;
+        }
+        this.normalizePasses = 0;
+      }
+      this.renderConnections();
+    });
+  }
+
+  private normalizeAllLayouts(): boolean {
+    let changed = false;
+
+    const walk = (wrapper: HTMLElement) => {
+      const card = wrapper.querySelector(':scope > .mindmap-node') as HTMLElement | null;
+      const children = wrapper.querySelector(':scope > .node-children') as HTMLElement | null;
+      if (!card || !children) return;
+
+      const childWrappers = Array.from(
+        children.querySelectorAll(':scope > .mindmap-node-wrapper')
+      ) as HTMLElement[];
+      if (childWrappers.length === 0) return;
+
+      // Normalize children first so their subtree heights are final.
+      childWrappers.forEach((childWrapper) => walk(childWrapper));
+
+      children.style.marginTop = '0px';
+      children.style.transform = 'translateY(0px)';
+      children.style.position = 'relative';
+      children.style.display = 'block';
+      children.style.gap = '0px';
+      const styles = window.getComputedStyle(children);
+      const gap =
+        parseFloat(styles.getPropertyValue('--child-gap')) ||
+        parseFloat(styles.rowGap || styles.gap || '0') ||
+        0;
+      const childHeights = childWrappers.map((childWrapper) =>
+        childWrapper.getBoundingClientRect().height
+      );
+      const totalHeight =
+        childHeights.reduce((sum, h) => sum + h, 0) + gap * (childHeights.length - 1);
+
+      let accTop = 0;
+      childWrappers.forEach((childWrapper, index) => {
+        const top = accTop;
+        childWrapper.style.position = 'absolute';
+        childWrapper.style.top = `${top}px`;
+        childWrapper.style.left = '0';
+        childWrapper.style.width = '100%';
+        accTop += childHeights[index] + gap;
+      });
+
+      children.style.height = `${totalHeight}px`;
+      children.style.transform = 'translateY(0px)';
+      changed = true;
+
+      const cardHeight = card.getBoundingClientRect().height;
+      const subtreeHeight = Math.max(cardHeight, totalHeight);
+      if (Math.abs(wrapper.getBoundingClientRect().height - subtreeHeight) > 0.5) {
+        wrapper.style.minHeight = `${subtreeHeight}px`;
+        changed = true;
+      }
+
+    };
+
+    const roots = Array.from(this.container.querySelectorAll(':scope > .mindmap-node-wrapper'));
+    roots.forEach((root) => walk(root as HTMLElement));
+
+    return changed;
+  }
+
+  private validateSymmetry(): boolean {
+    const dpr = window.devicePixelRatio || 1;
+    const snap = (v: number) => Math.round(v * dpr) / dpr;
+    let needsFix = false;
+
+    const wrappers = Array.from(this.container.querySelectorAll('.mindmap-node-wrapper')) as HTMLElement[];
+    wrappers.forEach((wrapper) => {
+      const card = wrapper.querySelector(':scope > .mindmap-node') as HTMLElement | null;
+      const children = wrapper.querySelector(':scope > .node-children') as HTMLElement | null;
+      if (!card || !children) return;
+
+      const childWrappers = Array.from(
+        children.querySelectorAll(':scope > .mindmap-node-wrapper')
+      ) as HTMLElement[];
+      if (childWrappers.length === 0) return;
+
+      const parentRect = card.getBoundingClientRect();
+      const parentCenterY = snap(parentRect.top + parentRect.height / 2);
+
+      const centers = childWrappers
+        .map((child) => child.querySelector('.mindmap-node') as HTMLElement | null)
+        .filter(Boolean)
+        .map((child) => {
+          const rect = (child as HTMLElement).getBoundingClientRect();
+          return snap(rect.top + rect.height / 2);
+        })
+        .sort((a, b) => a - b);
+
+      if (centers.length === 0) return;
+      let mid = 0;
+      if (centers.length % 2 === 1) {
+        mid = centers[(centers.length - 1) / 2];
+      } else {
+        mid = (centers[centers.length / 2 - 1] + centers[centers.length / 2]) / 2;
+      }
+      if (Math.abs(mid - parentCenterY) > 1) {
+        needsFix = true;
+      }
+    });
+
+    return needsFix;
+  }
+
   /**
    * 渲染所有父子连接线
    */
@@ -906,7 +1025,13 @@ export class MindMapRenderer {
     this.connectionsSvg.innerHTML = '';
 
     const svgNS = 'http://www.w3.org/2000/svg';
-    const containerRect = this.container.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const snap = (v: number) => Math.round(v * dpr) / dpr;
+    const debug = (window as any).__MM_DEBUG_LINES__ === true;
+    const ctm = this.connectionsSvg.getScreenCTM();
+    if (!ctm) return;
+    const inv = ctm.inverse();
+    const toSvgPoint = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(inv);
 
     // 递归渲染每个节点的子连接
     const renderNodeConnections = (node: MindMapNode) => {
@@ -921,8 +1046,9 @@ export class MindMapRenderer {
       if (!parentCard) return;
 
       const parentRect = parentCard.getBoundingClientRect();
-      const parentCenterY = parentRect.top + parentRect.height / 2 - containerRect.top;
-      const parentRight = parentRect.right - containerRect.left;
+      const parentAnchor = toSvgPoint(parentRect.right, parentRect.top + parentRect.height / 2);
+      const parentRight = snap(parentAnchor.x);
+      const parentCenterY = snap(parentAnchor.y);
 
       const children = node.children;
       const pathInPath = parentWrapper.classList.contains('in-path');
@@ -933,12 +1059,13 @@ export class MindMapRenderer {
           const childCard = childWrapper?.querySelector('.mindmap-node') as HTMLElement | null;
           if (!childWrapper || !childCard) return null;
           const rect = childCard.getBoundingClientRect();
+          const childAnchor = toSvgPoint(rect.left, rect.top + rect.height / 2);
           return {
             node: child,
             id: child.id,
             wrapper: childWrapper,
-            centerY: rect.top + rect.height / 2 - containerRect.top,
-            left: rect.left - containerRect.left,
+            centerY: snap(childAnchor.y),
+            left: snap(childAnchor.x),
           };
         })
         .filter(Boolean) as Array<{
@@ -951,19 +1078,28 @@ export class MindMapRenderer {
 
       if (childRects.length === 0) return;
 
-      const trunkX = parentRight + 18;
-      const horizontalGap = 14;
-      const firstY = childRects[0].centerY;
-      const lastY = childRects[childRects.length - 1].centerY;
+      const desiredTrunkX = snap(parentRight + 32);
+      const horizontalGap = 0;
+      const minChildLeft = Math.min(...childRects.map((child) => child.left));
+      const maxTrunkX = snap(minChildLeft - horizontalGap);
+      const trunkX = snap(Math.min(desiredTrunkX, maxTrunkX));
+      const sortedRects = [...childRects].sort((a, b) => a.centerY - b.centerY);
+      const firstY = sortedRects[0].centerY;
+      const lastY = sortedRects[sortedRects.length - 1].centerY;
+      const junctionY = parentCenterY;
+      const parentLineY = junctionY;
+      const trunkAttachY = junctionY;
+      const parentAnchorY = junctionY;
 
-      // Parent horizontal connector
-      const parentLine = document.createElementNS(svgNS, 'line');
-      parentLine.setAttribute('x1', `${parentRight}`);
-      parentLine.setAttribute('y1', `${parentCenterY}`);
-      parentLine.setAttribute('x2', `${trunkX}`);
-      parentLine.setAttribute('y2', `${parentCenterY}`);
-      parentLine.setAttribute('class', `mindmap-connection-line${pathInPath ? ' in-path' : ''}`);
-      this.connectionsSvg!.appendChild(parentLine);
+      // Parent connection to trunk midpoint (elbow if needed)
+      const parentPath = document.createElementNS(svgNS, 'path');
+      const parentD = `
+        M ${parentRight} ${parentLineY}
+        L ${trunkX} ${trunkAttachY}
+      `;
+      parentPath.setAttribute('d', parentD.trim());
+      parentPath.setAttribute('class', `mindmap-connection-line${pathInPath ? ' in-path' : ''}`);
+      this.connectionsSvg!.appendChild(parentPath);
 
       // Vertical trunk for this parent
       const trunk = document.createElementNS(svgNS, 'line');
@@ -974,6 +1110,44 @@ export class MindMapRenderer {
       trunk.setAttribute('class', `mindmap-connection-line${pathInPath ? ' in-path' : ''}`);
       this.connectionsSvg!.appendChild(trunk);
 
+      if (debug) {
+        const debugLine = document.createElementNS(svgNS, 'line');
+        debugLine.setAttribute('x1', `${parentRight - 10}`);
+        debugLine.setAttribute('y1', `${junctionY}`);
+        debugLine.setAttribute('x2', `${trunkX + 10}`);
+        debugLine.setAttribute('y2', `${junctionY}`);
+        debugLine.setAttribute('class', 'mindmap-connection-debug-line');
+        this.connectionsSvg!.appendChild(debugLine);
+
+        const debugDot = document.createElementNS(svgNS, 'circle');
+        debugDot.setAttribute('cx', `${trunkX}`);
+        debugDot.setAttribute('cy', `${junctionY}`);
+        debugDot.setAttribute('r', '3');
+        debugDot.setAttribute('class', 'mindmap-connection-debug-dot');
+        this.connectionsSvg!.appendChild(debugDot);
+
+        const parentDot = document.createElementNS(svgNS, 'circle');
+        parentDot.setAttribute('cx', `${parentRight}`);
+        parentDot.setAttribute('cy', `${parentCenterY}`);
+        parentDot.setAttribute('r', '3');
+        parentDot.setAttribute('class', 'mindmap-connection-debug-dot');
+        this.connectionsSvg!.appendChild(parentDot);
+
+        console.debug('[mindmap] junctionY', {
+          parentId: node.id,
+          parentRight,
+          parentCenterY,
+          trunkX,
+          parentAnchorY,
+          firstChildCenterY: firstY,
+          lastChildCenterY: lastY,
+          junctionY,
+          trunkAttachY,
+          parentLineY,
+          dpr,
+        });
+      }
+
       childRects.forEach((childRect) => {
         const isInPath = childRect.wrapper.classList.contains('in-path');
         const line = document.createElementNS(svgNS, 'line');
@@ -983,13 +1157,6 @@ export class MindMapRenderer {
         line.setAttribute('y2', `${childRect.centerY}`);
         line.setAttribute('class', `mindmap-connection-line${isInPath || pathInPath ? ' in-path' : ''}`);
         this.connectionsSvg!.appendChild(line);
-
-        const dot = document.createElementNS(svgNS, 'circle');
-        dot.setAttribute('cx', `${childRect.left - horizontalGap}`);
-        dot.setAttribute('cy', `${childRect.centerY}`);
-        dot.setAttribute('r', '3');
-        dot.setAttribute('class', `mindmap-connection-dot${isInPath || pathInPath ? ' in-path' : ''}`);
-        this.connectionsSvg!.appendChild(dot);
 
         renderNodeConnections(childRect.node);
       });

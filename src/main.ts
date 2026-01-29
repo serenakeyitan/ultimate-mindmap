@@ -2,7 +2,7 @@
  * Main application entry point
  */
 
-import type { AppState, MindMapDocument, MindMapNode, NodeAction, SourceReference } from './types';
+import type { AppState, MindMapDocument, MindMapNode, NodeAction } from './types';
 import { parser } from './core/parser';
 import { MindMapRenderer } from './core/renderer';
 import './styles/main.css';
@@ -70,11 +70,6 @@ class UltimateMindMap {
       this.openDocumentModal();
     });
 
-    const fileBrowserBtn = document.querySelector('[data-view="files"]');
-    fileBrowserBtn?.addEventListener('click', () => {
-      this.openFileBrowserModal();
-    });
-
     // Sidebar toggle
     document.querySelector('.sidebar-toggle')?.addEventListener('click', () => {
       document.getElementById('sidebar')?.classList.toggle('collapsed');
@@ -94,38 +89,11 @@ class UltimateMindMap {
       this.toggleDocumentExpanded();
     });
 
-    // Close file browser modal
-    document.getElementById('close-file-browser-modal')?.addEventListener('click', () => {
-      this.closeFileBrowserModal();
-    });
-
-    // File browser upload
-    const fileInput = document.getElementById('file-browser-input') as HTMLInputElement | null;
-    fileInput?.addEventListener('change', () => {
-      const files = Array.from(fileInput.files ?? []);
-      this.loadFileBrowserPdfs(files);
-    });
-
-    // Close source panel
-    document.getElementById('close-source-panel')?.addEventListener('click', () => {
-      this.closeSourcePanel();
-    });
-
     // Close modals on backdrop click
     document.getElementById('document-view-modal')?.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
         this.closeDocumentModal();
       }
-    });
-    document.getElementById('file-browser-modal')?.addEventListener('click', (e) => {
-      if (e.target === e.currentTarget) {
-        this.closeFileBrowserModal();
-      }
-    });
-
-    // AI Agent button
-    document.getElementById('ai-agent-button')?.addEventListener('click', () => {
-      alert('AI Agent feature - To be implemented with skill integration');
     });
 
     // Share button
@@ -456,6 +424,7 @@ class UltimateMindMap {
         this.maintainNodePosition(nodeId, () => {
           parser.toggleCollapsed(nodes, nodeId);
           this.renderer.render(nodes);
+          this.renderer.requestLayoutCheck();
         });
         this.updatePathHighlight();
         break;
@@ -473,15 +442,18 @@ class UltimateMindMap {
 
       case 'add-sibling':
         this.addSiblingNode(nodeId);
+        this.renderer.requestLayoutCheck();
         break;
 
       case 'add-child':
         this.addChildNode(nodeId);
+        this.renderer.requestLayoutCheck();
         break;
 
       case 'delete':
         parser.deleteNode(nodes, nodeId);
         this.renderer.render(nodes);
+        this.renderer.requestLayoutCheck();
         this.updatePathHighlight();
         this.updateMarkdown();
         break;
@@ -490,17 +462,10 @@ class UltimateMindMap {
         this.openColorPicker(nodeId);
         break;
 
-      case 'trace-back':
-        this.traceBackToOrigin(nodeId);
-        break;
-
-      case 'ask-ai':
-        this.askAI(nodeId);
-        break;
-
       case 'resize':
         if (data?.width) {
           parser.updateNode(nodes, nodeId, { width: data.width });
+          this.renderer.requestLayoutCheck();
         }
         break;
 
@@ -514,6 +479,7 @@ class UltimateMindMap {
             data.position ?? 'append'
           );
           this.renderer.render(nodes);
+          this.renderer.requestLayoutCheck();
           this.updatePathHighlight();
           this.updateMarkdown();
         }
@@ -746,162 +712,6 @@ class UltimateMindMap {
     document.getElementById('color-picker-modal')?.classList.add('hidden');
   }
 
-  /**
-   * Trace back to origin source
-   */
-  private traceBackToOrigin(nodeId: string) {
-    if (!this.currentDocument) return;
-
-    const node = parser.findNodeById(this.currentDocument.nodes, nodeId);
-    if (!node || !node.source) {
-      alert('No source reference found for this node');
-      return;
-    }
-
-    // For PDF sources, open file browser and navigate to the source
-    if (node.source.type === 'pdf') {
-      this.openFileBrowserWithSource(node.source);
-    } else {
-      // For other sources, show in source panel
-      this.state.sourcePanelVisible = true;
-      const sourcePanel = document.getElementById('source-panel');
-      sourcePanel?.classList.remove('hidden');
-
-      // Display source content with highlighting
-      const sourceContent = document.getElementById('source-content');
-      if (sourceContent && node.source.excerpt) {
-        const highlighted = `<div class="source-excerpt">
-          <p><strong>Source:</strong> ${node.source.source}</p>
-          ${node.source.page ? `<p><strong>Page:</strong> ${node.source.page}</p>` : ''}
-          <div class="excerpt-content">
-            <mark class="highlight">${node.source.excerpt}</mark>
-          </div>
-        </div>`;
-        sourceContent.innerHTML = highlighted;
-      }
-    }
-  }
-
-  /**
-   * Open file browser modal and navigate to source
-   */
-  private openFileBrowserWithSource(source: SourceReference) {
-    // Find the matching PDF file in uploaded files
-    const fileIndex = this.uploadedFiles.findIndex((file) => file.name === source.source);
-
-    if (fileIndex === -1) {
-      alert(`Source file "${source.source}" not found. Please upload the PDF first.`);
-      return;
-    }
-
-    // Open file browser modal
-    this.openFileBrowserModal();
-
-    // Wait for modal to open, then select the file and navigate to page
-    setTimeout(() => {
-      this.selectFileBrowserPdfWithHighlight(fileIndex, source);
-    }, 100);
-  }
-
-  /**
-   * Select PDF file and navigate to source with highlighting
-   */
-  private selectFileBrowserPdfWithHighlight(index: number, source: SourceReference) {
-    const frame = document.getElementById('file-browser-frame') as HTMLIFrameElement | null;
-    const listEl = document.getElementById('file-browser-list');
-
-    if (this.fileBrowserUrl) {
-      URL.revokeObjectURL(this.fileBrowserUrl);
-      this.fileBrowserUrl = null;
-    }
-
-    const file = this.uploadedFiles[index];
-    if (!file || !frame) {
-      if (frame) frame.removeAttribute('src');
-      return;
-    }
-
-    this.fileBrowserUrl = URL.createObjectURL(file);
-
-    // Navigate to specific page if available
-    let url = this.fileBrowserUrl;
-    if (source.page) {
-      url += `#page=${source.page}`;
-    }
-
-    frame.src = url;
-
-    // Update active state in file list
-    if (listEl) {
-      listEl.querySelectorAll('.file-browser-item').forEach((item, idx) => {
-        item.classList.toggle('active', idx === index);
-      });
-    }
-
-    // Show excerpt info
-    this.showSourceExcerptInfo(source);
-  }
-
-  /**
-   * Show source excerpt information
-   */
-  private showSourceExcerptInfo(source: SourceReference) {
-    const modal = document.getElementById('file-browser-modal');
-    if (!modal) return;
-
-    // Check if excerpt info already exists
-    let excerptInfo = modal.querySelector('.source-excerpt-info');
-    if (!excerptInfo) {
-      excerptInfo = document.createElement('div');
-      excerptInfo.className = 'source-excerpt-info';
-
-      const modalBody = modal.querySelector('.modal-body');
-      if (modalBody) {
-        modalBody.insertBefore(excerptInfo, modalBody.firstChild);
-      }
-    }
-
-    // Update excerpt info content
-    excerptInfo.innerHTML = `
-      <div class="excerpt-banner">
-        <div class="excerpt-header">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1L10 5L14 5.5L11 8.5L12 13L8 11L4 13L5 8.5L2 5.5L6 5L8 1Z" fill="currentColor"/>
-          </svg>
-          <strong>Source Highlight</strong>
-        </div>
-        <div class="excerpt-details">
-          <p><strong>Page:</strong> ${source.page || 'Unknown'}</p>
-          <p><strong>Excerpt:</strong> "${source.excerpt}"</p>
-        </div>
-        <button class="close-excerpt-btn" onclick="this.parentElement.remove()">×</button>
-      </div>
-    `;
-  }
-
-  /**
-   * Close source panel
-   */
-  private closeSourcePanel() {
-    this.state.sourcePanelVisible = false;
-    document.getElementById('source-panel')?.classList.add('hidden');
-  }
-
-  /**
-   * Ask AI about a node
-   */
-  private askAI(nodeId: string) {
-    if (!this.currentDocument) return;
-
-    const node = parser.findNodeById(this.currentDocument.nodes, nodeId);
-    if (!node) return;
-
-    const question = prompt(`Ask AI about "${node.title}":`);
-    if (!question) return;
-
-    // TODO: Integrate with AI skill
-    alert('AI integration coming soon! This will use the skill interface.');
-  }
 
   /**
    * Open document view modal
@@ -938,29 +748,6 @@ class UltimateMindMap {
     }, 200);
   }
 
-  /**
-   * Open file browser modal
-   */
-  private openFileBrowserModal() {
-    const modal = document.getElementById('file-browser-modal');
-    if (!modal) return;
-    modal.classList.remove('hidden');
-    requestAnimationFrame(() => modal.classList.add('is-open'));
-  }
-
-  /**
-   * Close file browser modal
-   */
-  private closeFileBrowserModal() {
-    const modal = document.getElementById('file-browser-modal');
-    if (!modal) return;
-    modal.classList.remove('is-open');
-    modal.classList.add('is-closing');
-    setTimeout(() => {
-      modal.classList.add('hidden');
-      modal.classList.remove('is-closing');
-    }, 200);
-  }
 
   private toggleDocumentExpanded() {
     const modal = document.getElementById('document-view-modal');
@@ -969,58 +756,6 @@ class UltimateMindMap {
     content.classList.toggle('expanded');
   }
 
-  private fileBrowserUrl: string | null = null;
-  private uploadedFiles: File[] = [];
-
-  private loadFileBrowserPdfs(files: File[]) {
-    this.uploadedFiles = files.filter((file) => file.type === 'application/pdf');
-    const filenameEl = document.getElementById('file-browser-filename');
-    const listEl = document.getElementById('file-browser-list');
-
-    if (filenameEl) {
-      filenameEl.textContent =
-        this.uploadedFiles.length > 0 ? 'Select a file' : 'Upload PDF';
-    }
-
-    if (listEl) {
-      listEl.innerHTML = '';
-      this.uploadedFiles.forEach((file, index) => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'file-browser-item';
-        item.textContent = file.name;
-        item.onclick = () => this.selectFileBrowserPdf(index);
-        listEl.appendChild(item);
-      });
-    }
-
-    this.selectFileBrowserPdf(0);
-  }
-
-  private selectFileBrowserPdf(index: number) {
-    const frame = document.getElementById('file-browser-frame') as HTMLIFrameElement | null;
-    const listEl = document.getElementById('file-browser-list');
-
-    if (this.fileBrowserUrl) {
-      URL.revokeObjectURL(this.fileBrowserUrl);
-      this.fileBrowserUrl = null;
-    }
-
-    const file = this.uploadedFiles[index];
-    if (!file || !frame) {
-      if (frame) frame.removeAttribute('src');
-      return;
-    }
-
-    this.fileBrowserUrl = URL.createObjectURL(file);
-    frame.src = this.fileBrowserUrl;
-
-    if (listEl) {
-      listEl.querySelectorAll('.file-browser-item').forEach((item, idx) => {
-        item.classList.toggle('active', idx === index);
-      });
-    }
-  }
 
   /**
    * Update markdown representation

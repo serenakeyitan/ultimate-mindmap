@@ -10,15 +10,12 @@ An interactive, hierarchical mind map application for visualizing markdown as be
 - ✅ **Hierarchical Layout**: Clean, indented card-based layout (not traditional tree view)
 - ✅ **Real-time Editing**: Edit titles and descriptions directly in the mind map
 - ✅ **Add/Remove Nodes**: Add sibling or child cards, delete nodes
-- ⏳ **Trace Back to Origin**: Highlight source text in PDF or document (in progress)
 - ⏳ **Color Customization**: Pick colors and stroke weights for individual cards (in progress)
-- ⏳ **AI Integration**: Generate mind maps from uploaded resources (planned)
 
 ### UI Features
 - Beautiful, modern interface matching reference design
 - Hover toolbars with action buttons
 - Document view modal for full markdown display
-- Source panel for trace-back functionality
 - Responsive layout with sidebar navigation
 
 ## Project Structure

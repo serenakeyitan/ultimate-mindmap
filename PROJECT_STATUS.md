@@ -50,7 +50,7 @@ Successfully implemented a **fully functional interactive mind map application**
 **Type System (`src/types/index.ts`):**
 - ✅ Complete TypeScript definitions
 - ✅ MindMapNode, MindMapDocument interfaces
-- ✅ SourceReference for trace-back
+- ✅ SourceReference for node sources
 - ✅ AppState for UI state management
 - ✅ AI generation request/response types
 
