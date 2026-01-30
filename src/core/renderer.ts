@@ -757,13 +757,83 @@ export class MindMapRenderer {
     draggingNodeId: string,
     draggingWrapper: HTMLElement
   ): { mode: 'sibling-before' | 'sibling-after' | 'child'; targetId: string; rect: DOMRect } | null {
-    // 临时隐藏拖拽元素以获取下方的元素
+    // Get the dragged card's current position (including transform)
+    const draggingCard = draggingWrapper.querySelector('.mindmap-node') as HTMLElement;
+    const draggingRect = draggingCard ? draggingCard.getBoundingClientRect() : draggingWrapper.getBoundingClientRect();
+
+    // PHASE 1: Check if dragged card is positioned in a child-lane drop zone (proximity-based)
+    const CHILD_GAP_MIN = 8;
+    const CHILD_GAP_MAX = 200;
+    const Y_TOLERANCE = 30;
+
+    const allWrappers = Array.from(this.container.querySelectorAll('.mindmap-node-wrapper')) as HTMLElement[];
+    let bestChildMatch: { targetId: string; rect: DOMRect; distance: number } | null = null;
+
+    for (const wrapper of allWrappers) {
+      const card = wrapper.querySelector('.mindmap-node') as HTMLElement;
+      if (!card) continue;
+
+      const targetId = wrapper.getAttribute('data-node-id');
+      if (!targetId || targetId === draggingNodeId || this.isDescendant(draggingNodeId, targetId)) {
+        continue;
+      }
+
+      const cardRect = card.getBoundingClientRect();
+
+      // Define child dropzone to the right of this card
+      const dropZone = {
+        left: cardRect.right + CHILD_GAP_MIN,
+        right: cardRect.right + CHILD_GAP_MAX,
+        top: cardRect.top - Y_TOLERANCE,
+        bottom: cardRect.bottom + Y_TOLERANCE,
+      };
+
+      // Check if dragged card's LEFT edge is in the child dropzone
+      const draggedCardLeft = draggingRect.left;
+      const draggedCardCenterY = draggingRect.top + draggingRect.height / 2;
+
+      const isInDropZone =
+        draggedCardLeft >= dropZone.left &&
+        draggedCardLeft <= dropZone.right &&
+        draggedCardCenterY >= dropZone.top &&
+        draggedCardCenterY <= dropZone.bottom;
+
+      if (isInDropZone) {
+        const distanceFromParent = draggedCardLeft - cardRect.right;
+
+        if (!bestChildMatch || distanceFromParent < bestChildMatch.distance) {
+          const placeholderLeft = cardRect.right + 24;
+          const placeholderRect = new DOMRect(
+            placeholderLeft,
+            cardRect.top,
+            cardRect.width,
+            cardRect.height
+          );
+
+          bestChildMatch = {
+            targetId,
+            rect: placeholderRect,
+            distance: distanceFromParent,
+          };
+        }
+      }
+    }
+
+    // If we found a valid child-lane dropzone, use it
+    if (bestChildMatch) {
+      return {
+        mode: 'child',
+        targetId: bestChildMatch.targetId,
+        rect: bestChildMatch.rect,
+      };
+    }
+
+    // PHASE 2: Check for sibling placement based on pointer position
     const originalPointerEvents = draggingWrapper.style.pointerEvents;
     draggingWrapper.style.pointerEvents = 'none';
 
     const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
 
-    // 恢复拖拽元素的 pointer-events
     draggingWrapper.style.pointerEvents = originalPointerEvents;
 
     const targetWrapper = el?.closest('.mindmap-node-wrapper') as HTMLElement | null;
@@ -778,40 +848,71 @@ export class MindMapRenderer {
       return null;
     }
 
-    // 计算指针在目标卡片上的位置
+    // Get the parent container to find siblings
+    const parentContainer = targetWrapper.parentElement;
+    if (!parentContainer || !parentContainer.classList.contains('node-children')) {
+      return null;
+    }
+
+    // Get all sibling wrappers (recalculate every time based on current DOM)
+    const siblings = Array.from(parentContainer.querySelectorAll(':scope > .mindmap-node-wrapper')) as HTMLElement[];
+    const targetIndex = siblings.indexOf(targetWrapper);
+    if (targetIndex === -1) return null;
+
     const rect = targetCard.getBoundingClientRect();
     const y = clientY - rect.top;
     const zoneTop = rect.height * 0.25;
     const zoneBottom = rect.height * 0.75;
 
-    // 根据位置返回唯一的 drop intent
+    // Determine sibling placement based on pointer Y position
     if (y < zoneTop) {
-      // Sibling before: 在目标上方插入
-      const gap = 12;
-      const placeholderTop = rect.top - rect.height - gap;
+      // Sibling before: calculate midpoint between previous card and this card
+      const prevWrapper = siblings[targetIndex - 1];
+      if (prevWrapper) {
+        const prevCard = prevWrapper.querySelector('.mindmap-node') as HTMLElement;
+        if (prevCard) {
+          const prevRect = prevCard.getBoundingClientRect();
+          const midY = (prevRect.bottom + rect.top) / 2;
+          const placeholderTop = midY - rect.height / 2;
+          return {
+            mode: 'sibling-before',
+            targetId,
+            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
+          };
+        }
+      }
+      const placeholderTop = rect.top - rect.height - 12;
       return {
         mode: 'sibling-before',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
     } else if (y > zoneBottom) {
-      // Sibling after: 在目标下方插入
-      const gap = 12;
-      const placeholderTop = rect.bottom + gap;
+      // Sibling after: calculate midpoint between this card and next card
+      const nextWrapper = siblings[targetIndex + 1];
+      if (nextWrapper) {
+        const nextCard = nextWrapper.querySelector('.mindmap-node') as HTMLElement;
+        if (nextCard) {
+          const nextRect = nextCard.getBoundingClientRect();
+          const midY = (rect.bottom + nextRect.top) / 2;
+          const placeholderTop = midY - rect.height / 2;
+          return {
+            mode: 'sibling-after',
+            targetId,
+            rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
+          };
+        }
+      }
+      const placeholderTop = rect.bottom + 12;
       return {
         mode: 'sibling-after',
         targetId,
         rect: new DOMRect(rect.left, placeholderTop, rect.width, rect.height),
       };
-    } else {
-      // Child: 作为目标的子节点
-      const childLeft = rect.left + rect.width + 24;
-      return {
-        mode: 'child',
-        targetId,
-        rect: new DOMRect(childLeft, rect.top, rect.width, rect.height),
-      };
     }
+
+    // Middle zone - no action
+    return null;
   }
 
   private ensurePlaceholderOverlay() {
