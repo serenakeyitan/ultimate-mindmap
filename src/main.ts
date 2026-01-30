@@ -73,7 +73,7 @@ class UltimateMindMap {
     // Sidebar toggle
     document.querySelector('.sidebar-toggle')?.addEventListener('click', () => {
       document.getElementById('sidebar')?.classList.toggle('collapsed');
-      document.getElementById('main-content')?.classList.toggle('sidebar-collapsed');
+      // Flex layout handles width changes naturally, no need to adjust main-content
     });
 
     // Close document modal
@@ -170,6 +170,18 @@ class UltimateMindMap {
       const target = event.target as HTMLElement | null;
       if (!target || !target.closest('.mindmap-node-wrapper')) {
         event.preventDefault();
+      }
+    });
+
+    // Click on empty canvas to deselect cards
+    container.addEventListener('click', (event) => {
+      if (this.renderer.isDragging()) return;
+      if (isInteractiveTarget(event.target)) return;
+
+      // Clear selection when clicking on canvas background
+      if (this.state.selectedNodeId) {
+        this.state.selectedNodeId = null;
+        this.updatePathHighlight();
       }
     });
 

@@ -14,6 +14,8 @@ export class MindMapRenderer {
   private dragDx = 0;
   private dragDy = 0;
   private dragRaf = 0;
+  private canvasPanStartX = 0;
+  private canvasPanStartY = 0;
   private nodes: MindMapNode[] = [];
   private dropTargetId: string | null = null;
   private dropMode: 'sibling-before' | 'sibling-after' | 'child' | null = null;
@@ -210,7 +212,7 @@ export class MindMapRenderer {
 
     wrapper.appendChild(card);
 
-    this.attachPointerDragHandlers(card, wrapper, node.id);
+    this.attachPointerDragHandlers(card, wrapper, node);
 
     // Render children
     if (node.children.length > 0 && !node.collapsed) {
@@ -570,7 +572,10 @@ export class MindMapRenderer {
     });
   }
 
-  private attachPointerDragHandlers(card: HTMLElement, wrapper: HTMLElement, nodeId: string) {
+  private attachPointerDragHandlers(card: HTMLElement, wrapper: HTMLElement, node: MindMapNode) {
+    const nodeId = node.id;
+    const isRootNode = node.parentId === null;
+
     card.addEventListener('pointerdown', (event) => {
       const target = event.target as HTMLElement;
       // 只在非交互区域才允许拖拽
@@ -607,6 +612,18 @@ export class MindMapRenderer {
       if (!this.dragActive && dx + dy > 8) {
         this.dragActive = true;
         wrapper.classList.add('dragging');
+
+        // For root nodes, store the initial canvas transform
+        if (isRootNode) {
+          const canvasInner = this.container.parentElement;
+          if (canvasInner) {
+            const currentTransform = canvasInner.style.transform;
+            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+            this.canvasPanStartX = match ? parseFloat(match[1]) : 0;
+            this.canvasPanStartY = match ? parseFloat(match[2]) : 0;
+          }
+        }
+
         this.ensurePlaceholderOverlay();
         event.preventDefault();
       }
@@ -618,6 +635,14 @@ export class MindMapRenderer {
 
       this.dragDx = event.clientX - this.dragStartX;
       this.dragDy = event.clientY - this.dragStartY;
+
+      // Root node dragging pans the entire canvas
+      if (isRootNode) {
+        this.panCanvas(this.dragDx, this.dragDy);
+        return;
+      }
+
+      // Non-root nodes: standard drag-to-reorder behavior
       this.scheduleDragTransform(wrapper);
 
       // 先清除之前的 placeholder（确保同一时刻只有一个）
@@ -706,6 +731,20 @@ export class MindMapRenderer {
     }
     wrapper.style.transform = '';
     this.scheduleConnectionsRender();
+  }
+
+  /**
+   * Pan the entire canvas when dragging a root node
+   */
+  private panCanvas(dx: number, dy: number) {
+    // Find the canvas inner element (parent of this.container)
+    const canvasInner = this.container.parentElement;
+    if (!canvasInner) return;
+
+    // Apply the drag delta to the initial transform (stored when drag started)
+    const newX = this.canvasPanStartX + dx;
+    const newY = this.canvasPanStartY + dy;
+    canvasInner.style.transform = `translate(${newX}px, ${newY}px)`;
   }
 
   /**

@@ -52,19 +52,19 @@ body {
   width: 56px;
 }
 
-#sidebar.collapsed .sidebar-header .logo span,
+#sidebar.collapsed .sidebar-header .logo,
 #sidebar.collapsed .nav-item span,
 #sidebar.collapsed .sidebar-section,
 #sidebar.collapsed .sidebar-footer {
   display: none;
 }
 
-#main-content {
-  transition: margin-left 0.25s ease;
+#sidebar.collapsed .sidebar-header {
+  justify-content: center;
 }
 
-#main-content.sidebar-collapsed {
-  margin-left: -184px;
+#main-content {
+  /* Let flex layout handle width changes naturally */
 }
 
 .sidebar-header {
@@ -72,7 +72,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-gray);
 }
 
 .logo {
@@ -98,8 +97,8 @@ body {
 }
 
 .sidebar-nav {
-  padding: 16px 8px;
-  border-bottom: 1px solid var(--border-gray);
+  padding: 0;
+  display: none; /* Hide empty nav section */
 }
 
 .nav-item {
@@ -197,7 +196,8 @@ body {
 
 .view-bar {
   background: #F7F7F8;
-  padding: 12px 24px 0;
+  padding: 0 24px 0;
+  display: none; /* Hide view bar to maximize canvas space */
 }
 
 .view-toggle {
@@ -430,7 +430,7 @@ body {
 .mindmap-container {
   flex: 1;
   overflow: auto;
-  padding: 24px 60px 40px;
+  padding: 0 60px 40px;
   background: #F7F7F8;
   cursor: grab;
   position: relative;
