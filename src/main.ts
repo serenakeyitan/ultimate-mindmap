@@ -266,11 +266,11 @@ class UltimateMindMap {
   private handleShortcutAction(action: string) {
     switch (action) {
       case 'zoom-in':
-        this.zoom = Math.min(1.5, this.zoom + 0.1);
+        this.zoom = Math.min(3.0, this.zoom + 0.1);
         this.applyPanTransform();
         break;
       case 'zoom-out':
-        this.zoom = Math.max(0.6, this.zoom - 0.1);
+        this.zoom = Math.max(0.3, this.zoom - 0.1);
         this.applyPanTransform();
         break;
       case 'fit-view':

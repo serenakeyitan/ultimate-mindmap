@@ -14,6 +14,7 @@ export class MindMapRenderer {
   private dragDx = 0;
   private dragDy = 0;
   private dragRaf = 0;
+  private dragPointerId: number | null = null;
   private canvasPanStartX = 0;
   private canvasPanStartY = 0;
   private nodes: MindMapNode[] = [];
@@ -589,17 +590,10 @@ export class MindMapRenderer {
       this.dragActive = false;
       this.dragDx = 0;
       this.dragDy = 0;
+      this.dragPointerId = event.pointerId;
 
-      // 禁用文本选择和默认拖拽
-      event.preventDefault();
-      card.setPointerCapture(event.pointerId);
-
-      // 添加 user-select: none 到 body
-      document.body.style.userSelect = 'none';
-      document.body.style.webkitUserSelect = 'none';
-
-      // 设置拖拽光标
-      card.style.cursor = 'grabbing';
+      // Don't capture pointer yet - allow double-click to work
+      // We'll capture after the drag threshold is crossed
     });
 
     card.addEventListener('pointermove', (event) => {
@@ -613,6 +607,17 @@ export class MindMapRenderer {
         this.dragActive = true;
         wrapper.classList.add('dragging');
 
+        // NOW capture the pointer for drag operations
+        if (this.dragPointerId !== null) {
+          card.setPointerCapture(this.dragPointerId);
+        }
+
+        // Prevent default behaviors and set drag UI state
+        event.preventDefault();
+        document.body.style.userSelect = 'none';
+        document.body.style.webkitUserSelect = 'none';
+        card.style.cursor = 'grabbing';
+
         // For root nodes, store the initial canvas transform
         if (isRootNode) {
           const canvasInner = this.container.parentElement;
@@ -625,7 +630,6 @@ export class MindMapRenderer {
         }
 
         this.ensurePlaceholderOverlay();
-        event.preventDefault();
       }
 
       if (!this.dragActive) return;
@@ -666,7 +670,11 @@ export class MindMapRenderer {
     const endDrag = (event: PointerEvent) => {
       if (this.draggingNodeId !== nodeId) return;
 
-      card.releasePointerCapture(event.pointerId);
+      // Only release pointer capture if drag was activated
+      if (this.dragActive && this.dragPointerId !== null) {
+        card.releasePointerCapture(this.dragPointerId);
+      }
+
       wrapper.classList.remove('dragging');
 
       // 恢复文本选择和光标
@@ -709,6 +717,7 @@ export class MindMapRenderer {
       this.clearDropPreview();
       this.draggingNodeId = null;
       this.dragActive = false;
+      this.dragPointerId = null;
     };
 
     card.addEventListener('pointerup', endDrag);
